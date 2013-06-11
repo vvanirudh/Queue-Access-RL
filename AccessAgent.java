@@ -1,0 +1,319 @@
+import java.lang.Math;
+import java.util.Vector;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.Random;
+import org.rlcommunity.rlglue.codec.AgentInterface;
+import org.rlcommunity.rlglue.codec.types.Action;
+import org.rlcommunity.rlglue.codec.types.Observation;
+import org.rlcommunity.rlglue.codec.util.AgentLoader;
+import org.rlcommunity.rlglue.codec.taskspec.TaskSpec;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+
+
+public class AccessAgent implements AgentInterface
+{
+	private Random randGenerator = new Random();
+	private Action lastaction;
+	private Observation lastobservation;
+	private double[][] valuefunction = null;
+	private double alpha_stepsize = 0.1;
+	private double beta_stepsize = 0.01;
+	private double epsilon = 0.1;
+
+	private int numstates = 15;
+	private int numactions = 2;
+
+	private double average_reward = 0.0;
+
+	private boolean freezeLearning = false;
+
+    int fixedstate = 12;
+    double discount = 0.9;
+
+    //****************************************** CONTROL ALGORITHM ****************************************
+
+    private boolean qlearning = false;
+    private boolean rlearning = true;
+    private boolean relative_qlearning = false;
+
+    //******************************************************************************************************
+
+
+
+	public void agent_init(String taskspec)
+	{
+		TaskSpec spec = new TaskSpec(taskspec);
+
+
+		assert (spec.getNumDiscreteObsDims() == 1);
+		assert (spec.getNumContinuousObsDims() == 0);
+		assert (!spec.getDiscreteObservationRange(0).hasSpecialMinStatus());
+        assert (!spec.getDiscreteObservationRange(0).hasSpecialMaxStatus());
+
+        //numstates = spec.getDiscreteObservationRange(0).getMax() + 1;
+
+        assert (spec.getNumDiscreteActionDims() == 1);
+        assert (spec.getNumContinuousActionDims() == 0);
+        assert (!spec.getDiscreteActionRange(0).hasSpecialMinStatus());
+        assert (!spec.getDiscreteActionRange(0).hasSpecialMaxStatus());
+
+        //numactions = spec.getDiscreteActionRange(0).getMax() + 1;
+
+        valuefunction = new double[numactions][numstates];
+
+        for(int i=0; i<numstates; i++)
+        {
+        	for(int j=0; j<numactions; j++)
+        	{
+        		valuefunction[j][i]=0.0;
+        	}
+        }
+	}
+
+	public Action agent_start(Observation observation)
+	{
+		//System.out.println("Agent state is "+ observation.getInt(0)+"");//////////////////////
+		int newactionint = egreedy(observation.getInt(0));
+
+		Action returnaction = new Action(1,0,0);
+		returnaction.intArray[0] = newactionint;
+
+		lastaction = returnaction.duplicate();
+		lastobservation = observation.duplicate();
+
+		return returnaction;
+	}
+
+	public Action agent_step(double reward, Observation observation)
+	{
+
+
+		int newstateint = observation.getInt(0);
+		int laststateint = lastobservation.getInt(0);	
+		int lastactionint = lastaction.getInt(0);
+
+		int newactionint = egreedy(newstateint);
+
+		//System.out.println("last state "+laststateint+" last action "+lastactionint);
+
+        if(rlearning)
+        {
+
+    		int maxactionint;
+    		if(valuefunction[0][newstateint]>valuefunction[1][newstateint]) maxactionint = 0;
+    		else maxactionint = 1;
+
+    		double Q_sa = valuefunction[lastactionint][laststateint];
+    		double Q_sprime_aprime = valuefunction[maxactionint][newstateint];
+
+
+    		double new_Q_sa = Q_sa + alpha_stepsize*(reward - average_reward + Q_sprime_aprime - Q_sa);
+    		if(!freezeLearning) 
+    		{
+    			valuefunction[lastactionint][laststateint]= new_Q_sa;
+    		//Helper outputs
+    		//System.out.println(lastactionint);
+    		//
+                if(valuefunction[0][laststateint]>valuefunction[1][laststateint]) maxactionint = 0;
+                else maxactionint = 1;
+
+
+    			int actionint;
+    			if(valuefunction[0][laststateint]>valuefunction[1][laststateint]) actionint = 0;
+    			else actionint = 1;
+
+    		if(lastactionint==actionint) average_reward = average_reward + beta_stepsize * (reward - average_reward + Q_sprime_aprime - valuefunction[maxactionint][laststateint]);
+    		}
+    		
+        }
+        else if(qlearning)
+        {
+            int maxactionint;
+            if(valuefunction[0][newstateint]>valuefunction[1][newstateint]) maxactionint = 0;
+            else maxactionint = 1;
+
+            
+
+            double Q_sa = valuefunction[lastactionint][laststateint];
+            double Q_sprime_aprime = valuefunction[maxactionint][newstateint];
+
+            double new_Q_sa = Q_sa + alpha_stepsize*(reward + discount*Q_sprime_aprime - Q_sa);
+
+            if(!freezeLearning) valuefunction[lastactionint][laststateint] = new_Q_sa;
+
+        }
+
+        else if(relative_qlearning)
+        {
+            int maxactionint;
+            if(valuefunction[0][newstateint]>valuefunction[1][newstateint]) maxactionint = 0;
+            else maxactionint = 1;
+
+            int maxfixedaction;
+            if(valuefunction[0][fixedstate]>valuefunction[1][fixedstate]) maxfixedaction = 0;
+            else maxfixedaction = 1;
+
+            double gamma = 0.1;
+            double Q_sa = valuefunction[lastactionint][laststateint];
+            double Q_sprime_aprime = valuefunction[maxactionint][newstateint];
+
+            double Q_sa_fixed = valuefunction[maxfixedaction][fixedstate];
+
+            double new_Q_sa = Q_sa + gamma*(reward + Q_sprime_aprime - Q_sa - Q_sa_fixed);
+
+            if(!freezeLearning) valuefunction[lastactionint][laststateint] = new_Q_sa;
+
+        }
+
+        Action returnAction = new Action();
+        returnAction.intArray = new int[]{newactionint};
+
+        lastaction = returnAction.duplicate();
+        lastobservation = observation.duplicate();
+
+        return returnAction;
+	}
+
+	public void agent_end(double reward) {
+        int lastStateInt = lastobservation.getInt(0);
+        int lastActionInt = lastaction.getInt(0);
+
+        double Q_sa = valuefunction[lastActionInt][lastStateInt];
+        if(rlearning)
+        {
+            double new_Q_sa = Q_sa + alpha_stepsize * (reward - Q_sa + average_reward);
+
+            /*	Only update the value function if the policy is not frozen */
+            
+            if(!freezeLearning) 
+            {
+            	valuefunction[lastActionInt][lastStateInt] = new_Q_sa;
+            //System.out.println(lastactionint);
+            
+            	if(new_Q_sa > valuefunction[1 - lastActionInt][lastStateInt]) average_reward = average_reward + beta_stepsize * (reward - average_reward - new_Q_sa);
+        	}
+        }
+
+        else if(qlearning)
+        {
+            double new_Q_sa = Q_sa+alpha_stepsize*(reward-Q_sa);
+            if(!freezeLearning) valuefunction[lastActionInt][lastStateInt] = new_Q_sa;
+        }
+
+        else if(relative_qlearning)
+        {
+            int action;
+            if(valuefunction[0][fixedstate]>valuefunction[1][fixedstate]) action = 0;
+            else action = 1;
+            double Q_sa_fixed = valuefunction[action][fixedstate];
+            double new_Q_sa = Q_sa + alpha_stepsize*(reward - Q_sa - Q_sa_fixed);
+
+            if(!freezeLearning) valuefunction[lastActionInt][lastStateInt] = new_Q_sa;
+        }
+
+        lastobservation = null;
+        lastaction = null;
+
+        //System.out.println("The average reward is "+average_reward+ " ");
+    }
+
+    public void agent_cleanup() {
+        lastaction = null;
+        lastobservation = null;
+        valuefunction = null;
+    }
+
+    private int egreedy(int state)
+    {
+    	if(state%5==0) return 0;
+    	else
+    	{
+            if (randGenerator.nextDouble() <= epsilon) {
+                return randGenerator.nextInt(numactions);
+            }
+
+
+            /*otherwise choose the greedy action*/
+            int maxIndex = 0;
+            if(valuefunction[1][state] > valuefunction[0][state]) maxIndex = 1;
+            return maxIndex;
+        }
+    }
+
+    public static void main(String[] args) {
+        AgentLoader theLoader = new AgentLoader(new AccessAgent());
+        theLoader.run();
+    }
+
+    public String agent_message(String message) 
+    {    
+    	if(message.equals("freeze learning"))
+    	{
+    		freezeLearning = true;
+    		return "Freezed Learning";
+    	}
+    	else if(message.equals("unfreeze learning"))
+    	{
+    		freezeLearning = false;
+    		return "Unfreezed learning";
+    	}
+    	else if(message.equals("print-state"))
+    	{
+    		print_state();
+    		return "Got it";
+    	}
+    	else if(message.equals("print-value-function"))
+    	{
+    		print_value_function();
+    		return "Got it";
+    	}
+        else if(message.equals("print-average-reward"))
+        {
+            print_reward();
+            return "Got it";
+        }
+		return "SampleSarsaAgent(Java) does not understand your message.";
+	}
+
+	public void print_state()
+	{
+		for(int s = 0; s<numstates;s++)
+		{
+			int priority = s/5;
+			int numfree = s%5;
+			if(valuefunction[0][s]>=valuefunction[1][s]) System.out.println("For the state "+ s +" with priority "+priority+" and free servers "+numfree+" the action is reject");
+			else System.out.println("For the state "+ s +" with priority "+priority+" and free servers "+numfree+" the action is accept");
+		}
+	}
+
+	public void print_value_function()
+	{
+		for(int i=0; i<numstates; i++)
+		{
+			for(int j=0; j<numactions; j++)
+			{
+			    System.out.println("For state "+ i + " and action "+ j +" the value is  "+ valuefunction[j][i]);
+			}
+		}
+	}
+
+    public void print_reward()
+    {
+        if(rlearning) System.out.println("Average reward is "+ average_reward);
+        else if(relative_qlearning)
+        {
+            int action;
+            if(valuefunction[0][fixedstate]>valuefunction[1][fixedstate]) action =0;
+            else action =1;
+            System.out.println("Average reward is "+ valuefunction[action][fixedstate]);
+        }
+    }
+
+
+
+}

@@ -1,0 +1,34 @@
+import java.lang.Integer;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.Vector;
+import org.rlcommunity.rlglue.codec.RLGlue;
+
+
+public class AccessExperiment
+{
+	public void offlineDemo()
+	{
+		
+		RLGlue.RL_episode(100000);
+		double thisReturn = RLGlue.RL_return();
+		System.out.println(thisReturn);
+		
+		
+	}
+
+	public void runExperiment()
+	{
+		RLGlue.RL_init();
+		offlineDemo();
+		RLGlue.RL_agent_message("print-state");
+
+		RLGlue.RL_cleanup();
+	}
+
+	public static void main(String[] args) {
+        AccessExperiment theExperiment = new AccessExperiment();
+        theExperiment.runExperiment();
+    }
+}
